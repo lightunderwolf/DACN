@@ -1,0 +1,94 @@
+import gym
+from gym import spaces
+import numpy as np
+import cv2
+from appium import webdriver
+import xml.etree.ElementTree as ET
+import subprocess
+from actions import ActionManager
+
+class AndroidEnv(gym.Env):
+    def __init__(self, apk_path):
+        super(AndroidEnv, self).__init__()
+        self.apk_path = apk_path
+        self.driver = None
+        self.action_manager = None
+        self.action_space = None
+        self.observation_space = spaces.Box(low=0, high=255, shape=(224, 224, 3), dtype=np.uint8)
+        self.explored_activities = set()
+        self.interacted_widgets = set()
+        self.setup_driver()
+
+    def setup_driver(self):
+        desired_caps = {
+            "platformName": "Android",
+            "deviceName": "emulator-5554",  # Thay bằng tên emulator của bạn
+            "app": self.apk_path,
+            "automationName": "UiAutomator2"
+        }
+        self.driver = webdriver.Remote("http://localhost:4723/wd/hub", desired_caps)
+        self.action_manager = ActionManager(self.driver)
+        self.action_space = spaces.Discrete(self.action_manager.get_action_space_size())
+
+    def get_gui_objects(self):
+        xml = self.driver.page_source
+        root = ET.fromstring(xml)
+        objects = []
+        for elem in root.findall(".//node"):
+            widget_type = elem.get("class")
+            widget_id = elem.get("resource-id")
+            bounds = elem.get("bounds")
+            if "EditText" in widget_type:
+                objects.append({"type": "EditText", "id": widget_id, "bounds": bounds})
+            elif "Button" in widget_type:
+                objects.append({"type": "Button", "id": widget_id, "bounds": bounds})
+            elif "ScrollView" in widget_type:
+                objects.append({"type": "ScrollView", "id": widget_id, "bounds": bounds})
+        return objects
+
+    def get_observation(self):
+        self.driver.get_screenshot_as_file("temp.png")
+        image = cv2.imread("temp.png")
+        image = cv2.resize(image, (224, 224))
+        return image
+
+    def step(self, action):
+        previous_state = self.driver.page_source
+        previous_activity = self.driver.current_activity
+        objects = self.get_gui_objects()
+
+        # Thực hiện hành động bằng ActionManager
+        success = self.action_manager.perform_action(action, objects)
+        reward = 0 if success else -1  # Phạt nếu hành động thất bại
+
+        # Lấy observation
+        observation = self.get_observation()
+
+        # Tính reward
+        current_state = self.driver.page_source
+        current_activity = self.driver.current_activity
+
+        # Thưởng cho activity mới (tích hợp ARES)
+        if current_activity not in self.explored_activities:
+            self.explored_activities.add(current_activity)
+            reward += 10
+
+        # Phạt cho hành động lặp lại
+        if current_state == previous_state:
+            reward -= 1
+
+        # Kiểm tra crash qua Logcat
+        logcat = subprocess.check_output(["adb", "logcat", "-d"]).decode()
+        if "FATAL EXCEPTION" in logcat:
+            reward += 20
+
+        done = False  # Tùy chỉnh điều kiện kết thúc
+        info = {}
+        return observation, reward, done, info
+
+    def reset(self):
+        self.driver.reset()
+        return self.get_observation()
+
+    def close(self):
+        self.driver.quit()

@@ -1,0 +1,51 @@
+from appium.webdriver.common.touch_action import TouchAction
+
+class ActionManager:
+    def __init__(self, driver):
+        self.driver = driver
+        self.action_space = {
+            0: ("click", "Button"),
+            1: ("long_click", "Button"),
+            2: ("type_text", "EditText"),
+            3: ("scroll_up", "ScrollView"),
+            4: ("scroll_down", "ScrollView")
+        }
+
+    def perform_action(self, action, objects):
+        """
+        Thực hiện hành động dựa trên action ID và danh sách đối tượng GUI.
+        :param action: ID của hành động (0-4)
+        :param objects: Danh sách các đối tượng GUI (từ get_gui_objects trong environment.py)
+        :return: True nếu hành động được thực hiện thành công, False nếu không
+        """
+        if action not in self.action_space:
+            return False
+
+        action_type, object_type = self.action_space[action]
+        for obj in objects:
+            if obj["type"] == object_type:
+                try:
+                    element = self.driver.find_element_by_id(obj["id"])
+                    if action_type == "click":
+                        element.click()
+                    elif action_type == "long_click":
+                        # Sử dụng TouchAction để thực hiện long click
+                        touch_action = TouchAction(self.driver)
+                        touch_action.long_press(element).release().perform()
+                    elif action_type == "type_text":
+                        element.send_keys("Test input")
+                    elif action_type == "scroll_up":
+                        self.driver.swipe(start_x=500, start_y=1000, end_x=500, end_y=500, duration=500)
+                    elif action_type == "scroll_down":
+                        self.driver.swipe(start_x=500, start_y=500, end_x=500, end_y=1000, duration=500)
+                    return True
+                except Exception as e:
+                    print(f"Error performing action {action_type} on {object_type}: {e}")
+                    return False
+        return False
+
+    def get_action_space_size(self):
+        """
+        Trả về kích thước của không gian hành động.
+        """
+        return len(self.action_space)

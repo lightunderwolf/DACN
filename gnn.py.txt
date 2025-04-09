@@ -1,0 +1,41 @@
+import torch
+import torch.nn.functional as F
+from torch_geometric.nn import GCNConv
+from torch_geometric.data import Data
+
+class GNN(torch.nn.Module):
+    def __init__(self):
+        super(GNN, self).__init__()
+        self.conv1 = GCNConv(1, 16)  # 1 feature -> 16
+        self.conv2 = GCNConv(16, 32)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        x = self.conv1(x, edge_index)
+        x = F.relu(x)
+        x = self.conv2(x, edge_index)
+        return x
+
+def create_graph_from_gui(xml):
+    root = ET.fromstring(xml)
+    nodes = []
+    edges = []
+    node_features = []
+    node_index = 0
+    node_map = {}
+
+    for elem in root.findall(".//node"):
+        node_map[elem] = node_index
+        nodes.append(node_index)
+        node_features.append([1.0])  # Feature đơn giản, có thể mở rộng
+        node_index += 1
+
+    for elem in root.findall(".//node"):
+        for child in elem:
+            if child in node_map:
+                edges.append([node_map[elem], node_map[child]])
+                edges.append([node_map[child], node_map[elem]])
+
+    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+    x = torch.tensor(node_features, dtype=torch.float)
+    return Data(x=x, edge_index=edge_index)
